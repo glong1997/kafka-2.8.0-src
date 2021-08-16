@@ -44,20 +44,28 @@ public class Consumer extends ShutdownableThread {
                     final CountDownLatch latch) {
         super("KafkaConsumerExample", false);
         this.groupId = groupId;
+        // 定义配置对象
         Properties props = new Properties();
+        // 指定kafka集群地址
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, KafkaProperties.KAFKA_SERVER_URL + ":" + KafkaProperties.KAFKA_SERVER_PORT);
+        // 指定消费者组id
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         instanceId.ifPresent(id -> props.put(ConsumerConfig.GROUP_INSTANCE_ID_CONFIG, id));
+        // 自动提交偏移量  enable.auto.commit
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
+        // 自动提交偏移量到时间间隔 auto.commit.interval.ms
         props.put(ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG, "1000");
+        // 一个consumer group里面的某个consumer挂掉了，最长需要session.timeout.ms秒检测出来
         props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "30000");
+        // key的反序列化类
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.IntegerDeserializer");
+        // value的反序列化类
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer");
         if (readCommitted) {
             props.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
         }
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-
+        // TODO 🔥初始化KafkaConsumer对象，内部初始化类一些核心的组件
         consumer = new KafkaConsumer<>(props);
         this.topic = topic;
         this.numMessageToConsume = numMessageToConsume;
@@ -71,7 +79,9 @@ public class Consumer extends ShutdownableThread {
 
     @Override
     public void doWork() {
+        // TODO 订阅：指定消费的topic
         consumer.subscribe(Collections.singletonList(this.topic));
+        // TODO 拉取数据
         ConsumerRecords<Integer, String> records = consumer.poll(Duration.ofSeconds(1));
         for (ConsumerRecord<Integer, String> record : records) {
             System.out.println(groupId + " received message : from partition " + record.partition() + ", (" + record.key() + ", " + record.value() + ") at offset " + record.offset());

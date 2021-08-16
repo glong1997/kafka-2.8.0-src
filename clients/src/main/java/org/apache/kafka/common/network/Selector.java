@@ -101,18 +101,28 @@ public class Selector implements Selectable, AutoCloseable {
         }
     }
 
+    // 日志对象
     private final Logger log;
+    // 🔥该对象就是Java NIO中的Selector，用来监听网络io事件
+    // 负责网络的建立， 发送网络请求， 处理网络io， 是kafka网络这一块的核心组件。
     private final java.nio.channels.Selector nioSelector;
+    // 🔥存储brokerId与KafkaChannel之间的映射关系，KafkaChannel是基于socketChannel进行了封装。
     private final Map<String, KafkaChannel> channels;
     private final Set<KafkaChannel> explicitlyMutedChannels;
     private boolean outOfMemory;
+    // 已发送完的请求
     private final List<NetworkSend> completedSends;
+    // 已接受完成的响应
     private final LinkedHashMap<String, NetworkReceive> completedReceives;
+    // 在调用SocketChannel#connect方法时立即完成的SelectionKey
     private final Set<SelectionKey> immediatelyConnectedKeys;
     private final Map<String, KafkaChannel> closingChannels;
     private Set<SelectionKey> keysWithBufferedRead;
+    // 已断开连接的节点
     private final Map<String, ChannelState> disconnected;
+    // 新连接成功的节点
     private final List<String> connected;
+    // 发送失败的节点
     private final List<String> failedSends;
     private final Time time;
     private final SelectorMetrics sensors;
@@ -248,17 +258,27 @@ public class Selector implements Selectable, AutoCloseable {
     @Override
     public void connect(String id, InetSocketAddress address, int sendBufferSize, int receiveBufferSize) throws IOException {
         ensureNotRegistered(id);
+        // 🔥如下代码就是一些java nIO编程的基本代码！
         SocketChannel socketChannel = SocketChannel.open();
         SelectionKey key = null;
         try {
+            // 配置socketChannel相关信息
             configureSocketChannel(socketChannel, sendBufferSize, receiveBufferSize);
+            // 尝试与服务器连接
             boolean connected = doConnect(socketChannel, address);
             key = registerChannel(id, socketChannel, SelectionKey.OP_CONNECT);
 
+            /*
+              由于生产者和服务端不在同一台机器上:
+              正常情况下，这儿的网络是不能完成连接的，这里连接不成功，哪里会连接成功呢?会在Sender线程中完成
+             */
+            // 假设连接成功
             if (connected) {
                 // OP_CONNECT won't trigger for immediately connected channels
                 log.debug("Immediately connected to node {}", id);
+                // 添加key到Set<SelectorKey>集合中
                 immediatelyConnectedKeys.add(key);
+                // 取消前面注册 OP_CONNECT事件
                 key.interestOps(0);
             }
         } catch (IOException | RuntimeException e) {
@@ -282,13 +302,21 @@ public class Selector implements Selectable, AutoCloseable {
 
     private void configureSocketChannel(SocketChannel socketChannel, int sendBufferSize, int receiveBufferSize)
             throws IOException {
+        // 设置为非阻塞模式
         socketChannel.configureBlocking(false);
+        // 获取socket
         Socket socket = socketChannel.socket();
+        // 定期检查一下两边的连接是否中断
         socket.setKeepAlive(true);
+        // 设置socket发送数据的缓存大小
         if (sendBufferSize != Selectable.USE_DEFAULT_BUFFER_SIZE)
             socket.setSendBufferSize(sendBufferSize);
+        // 设置socket接受数据的缓存大小
         if (receiveBufferSize != Selectable.USE_DEFAULT_BUFFER_SIZE)
             socket.setReceiveBufferSize(receiveBufferSize);
+        // 是否启用nagle算法，默认值false (启用)。Nagle算法适用于需要发送大量数据的应用场景。这种算法减少传输的次数增加性能
+        // 它会把网络做的一些小的数据包收集起来，组合成一个大的数据包，再发送出去，
+        // 但是kafka一定不能把这儿设置为false. 也就是最终不启用，因为有些时候数据包本身就比较小，这个时候就不会发送数据，这是不合理的
         socket.setTcpNoDelay(true);
     }
 
@@ -308,6 +336,7 @@ public class Selector implements Selectable, AutoCloseable {
      */
     public void register(String id, SocketChannel socketChannel) throws IOException {
         ensureNotRegistered(id);
+
         registerChannel(id, socketChannel, SelectionKey.OP_READ);
         this.sensors.connectionCreated.record();
         // Default to empty client information as the ApiVersionsRequest is not
@@ -325,8 +354,11 @@ public class Selector implements Selectable, AutoCloseable {
     }
 
     protected SelectionKey registerChannel(String id, SocketChannel socketChannel, int interestedOps) throws IOException {
+        // socketChannel向nioSelector注册了一个OP_CONNECT连接事件
         SelectionKey key = socketChannel.register(nioSelector, interestedOps);
+        // 通过这个socketCHannel构建出KafkaChannel
         KafkaChannel channel = buildAndAttachKafkaChannel(socketChannel, id, key);
+        // 把brokerId与KafkaChannel添加到缓存channels：Map<String, KafkaChannel>集合中
         this.channels.put(id, channel);
         if (idleExpiryManager != null)
             idleExpiryManager.update(channel.id(), time.nanoseconds());
@@ -462,11 +494,14 @@ public class Selector implements Selectable, AutoCloseable {
 
         /* check ready keys */
         long startSelect = time.nanoseconds();
+        // 统计Selector上有多少个key注册了
         int numReadyKeys = select(timeout);
         long endSelect = time.nanoseconds();
         this.sensors.selectTime.record(endSelect - startSelect, time.milliseconds());
 
+        // 使用场景驱动对方式，刚刚分析了确实有一个key注册在Selector上面了
         if (numReadyKeys > 0 || !immediatelyConnectedKeys.isEmpty() || dataInBuffers) {
+            // 取出所有已经准备好对选择键
             Set<SelectionKey> readyKeys = this.nioSelector.selectedKeys();
 
             // Poll from channels that have buffered data (but nothing more from the underlying socket)

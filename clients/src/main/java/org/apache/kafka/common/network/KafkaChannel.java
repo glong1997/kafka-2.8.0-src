@@ -113,8 +113,11 @@ public class KafkaChannel implements AutoCloseable {
         THROTTLE_ENDED
     }
 
+    // 一个broker对应一个KafkaChannel，这里就是brokerId
     private final String id;
+    // 🔥TransportLayer封装了java NIO中的 socketChannel
     private final TransportLayer transportLayer;
+    // kafka安全机制认证
     private final Supplier<Authenticator> authenticatorCreator;
     private Authenticator authenticator;
     // Tracks accumulated network thread time. This is updated on the network thread.
@@ -123,7 +126,9 @@ public class KafkaChannel implements AutoCloseable {
     private final int maxReceiveSize;
     private final MemoryPool memoryPool;
     private final ChannelMetadataRegistry metadataRegistry;
+    // 接受的响应
     private NetworkReceive receive;
+    // 发送出去的请求
     private NetworkSend send;
     // Track connection and mute state of channels to enable outstanding requests on channels to be
     // processed after the channel is disconnected.

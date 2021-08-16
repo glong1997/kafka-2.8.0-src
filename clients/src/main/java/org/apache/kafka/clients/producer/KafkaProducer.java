@@ -232,6 +232,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * <code>UnsupportedVersionException</code> when invoking an API that is not available in the running broker version.
  * </p>
  */
+// KafkaProducer主线程，还维护了Sender子线程
 public class KafkaProducer<K, V> implements Producer<K, V> {
 
     private final Logger log;
@@ -242,21 +243,21 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     private final String clientId;
     // Visible for testing
     final Metrics metrics;
-    private final Partitioner partitioner;
+    private final Partitioner partitioner;  // 3、分区器
     private final int maxRequestSize;
     private final long totalMemorySize;
     private final ProducerMetadata metadata;
-    private final RecordAccumulator accumulator;
-    private final Sender sender;
+    private final RecordAccumulator accumulator;    // 4、消息累加器（缓冲区）
+    private final Sender sender;    // 5、Sender子线程
     private final Thread ioThread;
     private final CompressionType compressionType;
     private final Sensor errors;
     private final Time time;
-    private final Serializer<K> keySerializer;
+    private final Serializer<K> keySerializer;  // 2、序列化器
     private final Serializer<V> valueSerializer;
     private final ProducerConfig producerConfig;
     private final long maxBlockTimeMs;
-    private final ProducerInterceptors<K, V> interceptors;
+    private final ProducerInterceptors<K, V> interceptors;  // 1、拦截器
     private final ApiVersions apiVersions;
     private final TransactionManager transactionManager;
 
@@ -362,8 +363,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                     config.originalsWithPrefix(CommonClientConfigs.METRICS_CONTEXT_PREFIX));
             this.metrics = new Metrics(metricConfig, reporters, time, metricsContext);
 
-            // 🔥 设置分区器，默认使用 DefaultPartitioner
-            // Partitioner 作用： 决定信息最终会发送到 topic 到哪一个分区
+            // TODO 🔥 设置分区器，默认使用 DefaultPartitioner
+            // Partitioner 作用： 决定信息最终会发送到 topic 的哪一个分区
             this.partitioner = config.getConfiguredInstance(
                     ProducerConfig.PARTITIONER_CLASS_CONFIG,
                     Partitioner.class,
@@ -416,7 +417,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
             this.apiVersions = new ApiVersions();
             this.transactionManager = configureTransactionState(config, logContext);
-            // 🔥 创建一个核心到组建 RecordAccumulator 缓冲区，缓存消息
+            // TODO 🔥 创建一个核心到组建 RecordAccumulator 缓冲区，缓存消息
             this.accumulator = new RecordAccumulator(logContext,
                     config.getInt(ProducerConfig.BATCH_SIZE_CONFIG),    // 批次大小，默认16KB
                     this.compressionType,   // 压缩
@@ -433,22 +434,38 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             List<InetSocketAddress> addresses = ClientUtils.parseAndValidateAddresses(
                     config.getList(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG),
                     config.getString(ProducerConfig.CLIENT_DNS_LOOKUP_CONFIG));
-            // 判断 Kafka 集群元数据信息是否存在
+            // 判断 Kafka 集群元数据信息是否存在 🔥🔥
             if (metadata != null) {
+                /*  我们在Producer最开始的时候有 kafka集群的地址 和 topic，但是很多信息并不知道，需要借助元数据
+                    metadata 包含了 Kafka 集群的元数据信息，包括
+                    - Kafka集群的节点有哪些
+                    - 有哪些topic
+                    - 每个topic有哪些分区
+                    - 该分区对应的ISR列表分布在哪些节点
+                 */
+                // 获取 metadata 需要给kafka集群发送 获取kafka集群的网络请求
                 this.metadata = metadata;
             } else {
+                // 创建 Metadata 对象 ，注意：这里只是本地对象，没有包含任何kafka集群信息
                 this.metadata = new ProducerMetadata(retryBackoffMs,
                         config.getLong(ProducerConfig.METADATA_MAX_AGE_CONFIG),
                         config.getLong(ProducerConfig.METADATA_MAX_IDLE_CONFIG),
                         logContext,
                         clusterResourceListeners,
                         Time.SYSTEM);
+                // 更新元数据
                 this.metadata.bootstrap(addresses);
             }
             this.errors = this.metrics.sensor("errors");
+            // TODO 🔥🔥🔥 初始化 Sender 线程
+            // 内部包含了业务代码
             this.sender = newSender(logContext, kafkaClient, this.metadata);
             String ioThreadName = NETWORK_THREAD_PREFIX + " | " + clientId;
+
+            // 创建一个线程，然后里面传进去一个 sender 对象
+            // 内部包含了线程代码，实现把业务代码和线程代码进行隔离，显得清晰
             this.ioThread = new KafkaThread(ioThreadName, this.sender, true);
+            // 启动线程 🚀
             this.ioThread.start();
             config.logUnused();
             AppInfoParser.registerAppInfo(JMX_PREFIX, clientId, metrics, time.milliseconds());
@@ -461,6 +478,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         }
     }
 
+    // TODO 🔥🔥🔥  Sender 线程
     // visible for testing
     Sender newSender(LogContext logContext, KafkaClient kafkaClient, ProducerMetadata metadata) {
         int maxInflightRequests = configureInflightRequests(producerConfig);
@@ -468,6 +486,19 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         ChannelBuilder channelBuilder = ClientUtils.createChannelBuilder(producerConfig, time, logContext);
         ProducerMetrics metricsRegistry = new ProducerMetrics(this.metrics);
         Sensor throttleTimeSensor = Sender.throttleTimeSensor(metricsRegistry.senderMetrics);
+        // 🔥 构建重要的‼️ NetworkClient 网络管理组件
+        /*
+        connections.max.idle.ms:默认值是9分钟，一个网络连接最多空闲多久，超过这个空闲时间，就关闭这个网络连接。
+        可以设置为-1，不回收连接，减少频繁的创建和销毁连接
+
+        flight.requests.per.connection: 默认是 5
+        - 发送数据的时候，其实是有多个网络连接。每个网络连接可以忍受producer端发送给broker消息后，消息没有响应的个数。
+        - 因为kafka有重试机制，所以有可能会造成数据乱序‼️，如果想要保证有序，这个值要把设置为 1
+
+        reconnect.backoff.ms:   socket尝试重新连接指定主机的时间间隔
+        send.buffer.bytes:      socket发送数据的缓冲区的大小，默认值是128K
+        receive.buffer.bytes:   socket接受数据的缓冲区的大小，默认值是32K
+         */
         KafkaClient client = kafkaClient != null ? kafkaClient : new NetworkClient(
                 new Selector(producerConfig.getLong(ProducerConfig.CONNECTIONS_MAX_IDLE_MS_CONFIG),
                         this.metrics, time, "producer", channelBuilder, logContext),
@@ -981,6 +1012,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                 // producer callback will make sure to call both 'callback' and interceptor callback
                 interceptCallback = new InterceptorCallback<>(callback, this.interceptors, tp);
 
+                // TODO 把消息放入到缓冲区
                 result = accumulator.append(tp, timestamp, serializedKey,
                     serializedValue, headers, interceptCallback, remainingWaitMs, false, nowMs);
             }
@@ -988,8 +1020,10 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             if (transactionManager != null && transactionManager.isTransactional())
                 transactionManager.maybeAddPartitionToTransaction(tp);
 
+            // 如果批次满了，或者是新创建到一个批次。
             if (result.batchIsFull || result.newBatchCreated) {
                 log.trace("Waking up the sender since topic {} partition {} is either full or getting a new batch", record.topic(), partition);
+                // TODO 唤醒Sender线程， 它是正在发送数据到线程。
                 this.sender.wakeup();
             }
             return result.future;

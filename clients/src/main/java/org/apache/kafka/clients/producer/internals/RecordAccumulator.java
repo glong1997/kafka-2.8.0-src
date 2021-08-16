@@ -69,7 +69,7 @@ public final class RecordAccumulator {
     private volatile boolean closed;
     private final AtomicInteger flushesInProgress;
     private final AtomicInteger appendsInProgress;
-    private final int batchSize;
+    private final int batchSize;    // 批次大小
     private final CompressionType compression;
     private final int lingerMs;
     private final long retryBackoffMs;
@@ -77,6 +77,7 @@ public final class RecordAccumulator {
     private final BufferPool free;
     private final Time time;
     private final ApiVersions apiVersions;
+    // 🔥双向队列，存储了若干个 ProducerBatch，队列数量取决于有多少个分区！
     private final ConcurrentMap<TopicPartition, Deque<ProducerBatch>> batches;
     private final IncompleteBatches incomplete;
     // The following variables are only accessed by the sender thread, so we don't need to protect them.

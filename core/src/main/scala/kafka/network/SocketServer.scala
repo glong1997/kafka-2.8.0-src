@@ -123,10 +123,13 @@ class SocketServer(val config: KafkaConfig,
    * @param controlPlaneListener    The control plane listener, or None if there is none.
    * @param dataPlaneListeners      The data plane listeners.
    */
+    // 🔥
   def startup(startProcessingRequests: Boolean = true,
               controlPlaneListener: Option[EndPoint] = config.controlPlaneListener,
               dataPlaneListeners: Seq[EndPoint] = config.dataPlaneListeners): Unit = {
     this.synchronized {
+      // TODO 创建 Acceptor 和 Processor 线程 ❕
+      // ControlPlaneAcceptor 和 DataPlaneAcceptors 内部会创建 Acceptor
       createControlPlaneAcceptorAndProcessor(controlPlaneListener)
       createDataPlaneAcceptorsAndProcessors(config.numNetworkThreads, dataPlaneListeners)
       if (startProcessingRequests) {
@@ -266,9 +269,13 @@ class SocketServer(val config: KafkaConfig,
   }
 
   private def createControlPlaneAcceptorAndProcessor(endpointOpt: Option[EndPoint]): Unit = {
+    // endpoint：一台服务器可以配置多个kafka实例
+    // node01:9092, node01:9093, node01:9094 伪分布式。一般来说一个节点只会配置一个实例
     endpointOpt.foreach { endpoint =>
       connectionQuotas.addListener(config, endpoint.listenerName)
+      // TODO🔥 创建 Acceptor 线程，它是一个核心线程
       val controlPlaneAcceptor = createAcceptor(endpoint, ControlPlaneMetricPrefix)
+      // TODO 创建 Processor 线程
       val controlPlaneProcessor = newProcessor(nextProcessorId, controlPlaneRequestChannelOpt.get,
         connectionQuotas, endpoint.listenerName, endpoint.securityProtocol, memoryPool, isPrivilegedListener = true)
       controlPlaneAcceptorOpt = Some(controlPlaneAcceptor)
@@ -277,12 +284,15 @@ class SocketServer(val config: KafkaConfig,
       listenerProcessors += controlPlaneProcessor
       controlPlaneRequestChannelOpt.foreach(_.addProcessor(controlPlaneProcessor))
       nextProcessorId += 1
+      // TODO 通过KafkaThread来启动 acceptor 线程
       controlPlaneAcceptor.addProcessors(listenerProcessors, ControlPlaneThreadPrefix)
       info(s"Created control-plane acceptor and processor for endpoint : ${endpoint.listenerName}")
     }
   }
 
+  // TODO  Acceptor 线程
   private def createAcceptor(endPoint: EndPoint, metricPrefix: String) : Acceptor = {
+    // socket发送数据和接收数据的缓冲区
     val sendBufferSize = config.socketSendBufferBytes
     val recvBufferSize = config.socketReceiveBufferBytes
     new Acceptor(endPoint, sendBufferSize, recvBufferSize, nodeId, connectionQuotas, metricPrefix, time)
@@ -556,7 +566,9 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
                               logPrefix: String = "") extends AbstractServerThread(connectionQuotas) with KafkaMetricsGroup {
 
   this.logIdent = logPrefix
+  // 🔥 创建多路复用器
   private val nioSelector = NSelector.open()
+  // 构建 serverChannel
   val serverChannel = openServerSocket(endPoint.host, endPoint.port)
   private val processors = new ArrayBuffer[Processor]()
   private val processorsStarted = new AtomicBoolean
@@ -570,9 +582,13 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
   }
 
   private[network] def addProcessors(newProcessors: Buffer[Processor], processorThreadPrefix: String): Unit = synchronized {
+    // 添加一组新的 Processor 线程
     processors ++= newProcessors
-    if (processorsStarted.get)
+    // 如果 Processor 线程池已经启动
+    if (processorsStarted.get) {
+      // 启动新的 Processor 线程
       startProcessors(newProcessors, processorThreadPrefix)
+    }
   }
 
   private[network] def startProcessors(processorThreadPrefix: String): Unit = synchronized {
@@ -619,6 +635,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
    * Accept loop that checks for new connection attempts
    */
   def run(): Unit = {
+    // TODO 向 NIOSelector 上注册个OP_ACCEPT事件，按下来就可以接受客户端（生产者）请求了
     serverChannel.register(nioSelector, SelectionKey.OP_ACCEPT)
     startupComplete()
     try {
@@ -673,15 +690,22 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
    * Listen for new connections and assign accepted connections to processors using round-robin.
    */
   private def acceptNewConnections(): Unit = {
+    // 每隔 500ms 获取注册key的个数
     val ready = nioSelector.select(500)
+    // 获取到所有注册的key
     if (ready > 0) {
       val keys = nioSelector.selectedKeys()
+      // 迭代keys
       val iter = keys.iterator()
+      // 遍历
       while (iter.hasNext && isRunning) {
         try {
+          // 取出每一个key
           val key = iter.next
+          // 移除key
           iter.remove()
 
+          // 🔥 如果是客户端发送过来的建立连接事件的 key
           if (key.isAcceptable) {
             accept(key).foreach { socketChannel =>
               // Assign the channel to the next processor (using round-robin) to which the
@@ -694,9 +718,12 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
                 processor = synchronized {
                   // adjust the index (if necessary) and retrieve the processor atomically for
                   // correct behaviour in case the number of processors is reduced dynamically
+                  // 轮询算法获取processors数组的下标
                   currentProcessorIndex = currentProcessorIndex % processors.length
+                  // 通过下标获取出对应的Processor线程
                   processors(currentProcessorIndex)
                 }
+                // 计数器 + 1
                 currentProcessorIndex += 1
               } while (!assignNewConnection(socketChannel, processor, retriesLeft == 0))
             }

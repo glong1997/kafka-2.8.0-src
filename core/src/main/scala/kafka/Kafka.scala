@@ -66,6 +66,7 @@ object Kafka extends Logging {
   private def buildServer(props: Properties): Server = {
     val config = KafkaConfig.fromProps(props, false)
     if (config.requiresZookeeper) {
+      // TODO 1. 创建KafkaServer
       new KafkaServer(
         config,
         Time.SYSTEM,
@@ -73,6 +74,7 @@ object Kafka extends Logging {
         enableForwarding = false
       )
     } else {
+      // 2. KafkaRaftServer
       new KafkaRaftServer(
         config,
         Time.SYSTEM,
@@ -81,9 +83,12 @@ object Kafka extends Logging {
     }
   }
 
+  // TODO 🔥主线程
   def main(args: Array[String]): Unit = {
     try {
+      // 解析启动服务的时候传递的参数
       val serverProps = getPropsFromArgs(args)
+      // TODO 1. 创建server对象，内部初始化KafkaServer
       val server = buildServer(serverProps)
 
       try {

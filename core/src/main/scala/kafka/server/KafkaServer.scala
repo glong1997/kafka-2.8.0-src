@@ -173,6 +173,7 @@ class KafkaServer(
    * Start up API for bringing up a single instance of the Kafka server.
    * Instantiates the LogManager, the SocketServer and the request handlers - KafkaRequestHandlers
    */
+  // TODO 🔥 整个Kafka服务端的功能都在这里
   override def startup(): Unit = {
     try {
       info("starting")
@@ -188,6 +189,7 @@ class KafkaServer(
         brokerState.set(BrokerState.STARTING)
 
         /* setup zookeeper */
+        // 初始化zk客户端
         initZkClient(time)
         configRepository = new ZkConfigRepository(new AdminZkClient(zkClient))
 
@@ -244,10 +246,12 @@ class KafkaServer(
         logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
 
         /* start log manager */
+        // TODO 初始化LogManager 这里其本质是使用了 Object LogManager 它对apply
         logManager = LogManager(config, initialOfflineDirs,
           new ZkConfigRepository(new AdminZkClient(zkClient)),
           kafkaScheduler, time, brokerTopicStats, logDirFailureChannel, config.usesTopicId)
         brokerState.set(BrokerState.RECOVERY)
+        // TODO 启动 logManager
         logManager.startup(zkClient.getAllTopicsInCluster())
 
         metadataCache = MetadataCache.zkMetadataCache(config.brokerId)
@@ -281,10 +285,12 @@ class KafkaServer(
         //
         // Note that we allow the use of KRaft mode controller APIs when forwarding is enabled
         // so that the Envelope request is exposed. This is only used in testing currently.
+        // TODO 🔥 1. NIO服务端 SocketServer 是接收客户端Socket请求连接、处理请求并返回处理结果的核心类
         socketServer = new SocketServer(config, metrics, time, credentialProvider, apiVersionManager)
+        // 启动 socketServer 服务
         socketServer.startup(startProcessingRequests = false)
 
-        /* start replica manager */
+        /* start replica manager 启动副本管理 */
         alterIsrManager = if (config.interBrokerProtocolVersion.isAlterIsrSupported) {
           AlterIsrManager(
             config = config,
@@ -371,6 +377,7 @@ class KafkaServer(
           autoTopicCreationManager, config.brokerId, config, configRepository, metadataCache, metrics, authorizer, quotaManagers,
           fetchManager, brokerTopicStats, clusterId, time, tokenManager, apiVersionManager)
 
+        // TODO 就是它实现处理队列中的请求——它是一个线程池
         dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
           config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix)
 

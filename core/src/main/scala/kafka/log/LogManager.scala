@@ -66,19 +66,23 @@ class LogManager(logDirs: Seq[File],
                  val keepPartitionMetadataFile: Boolean) extends Logging with KafkaMetricsGroup {
 
   import LogManager._
-
+  // 默认的锁文件， kafka不正常关闭的时候可以看见这个文件未被清理.在logdir下
   val LockFile = ".lock"
+  // 初始任务延迟时长
   val InitialTaskDelayMs = 30 * 1000
-
+  // 创建或删除 Log 时对锁对象
   private val logCreationOrDeletionLock = new Object
+  // 记录每个 topic 分区对象与 Log 对象之间对映射关系
   private val currentLogs = new Pool[TopicPartition, Log]()
   // Future logs are put in the directory with "-future" suffix. Future log is created when user wants to move replica
   // from one log directory to another log directory on the same broker. The directory of the future log will be renamed
   // to replace the current log of the partition after the future log catches up with the current log
   private val futureLogs = new Pool[TopicPartition, Log]()
   // Each element in the queue contains the log object to be deleted and the time it is scheduled for deletion.
+  // 记录需要被删除对 Log 对象
   private val logsToBeDeleted = new LinkedBlockingQueue[(Log, Long)]()
 
+  // 检查目录是否合法，并创建目录
   private val _liveLogDirs: ConcurrentLinkedQueue[File] = createAndValidateLogDirs(logDirs, initialOfflineDirs)
   @volatile private var _currentDefaultConfig = initialDefaultConfig
   @volatile private var numRecoveryThreadsPerDataDir = recoveryThreadsPerDataDir
@@ -140,17 +144,23 @@ class LogManager(logDirs: Seq[File],
     val liveLogDirs = new ConcurrentLinkedQueue[File]()
     val canonicalPaths = mutable.HashSet.empty[String]
 
+    // TODO 遍历目录 logs.dirs=/data0/log, /data1/log, /data2/log
+    // 在/kafka/config/server.properties下有对应配置：log.dirs=
     for (dir <- dirs) {
       try {
+        // liveLogDirs与offline日志目录不能有重叠情况
         if (initialOfflineDirs.contains(dir))
           throw new IOException(s"Failed to load ${dir.getAbsolutePath} during broker startup")
 
+        // 如果日志目录不存在，则创建出来
         if (!dir.exists) {
           info(s"Log directory ${dir.getAbsolutePath} not found, creating it.")
+          // TODO 代码第一次进来会创建所有的目录
           val created = dir.mkdirs()
           if (!created)
             throw new IOException(s"Failed to create data directory ${dir.getAbsolutePath}")
         }
+        // TODO 确保每个日志目录是个目录且有可读权限
         if (!dir.isDirectory || !dir.canRead)
           throw new IOException(s"${dir.getAbsolutePath} is not a readable log directory.")
 
@@ -160,13 +170,14 @@ class LogManager(logDirs: Seq[File],
         if (!canonicalPaths.add(dir.getCanonicalPath))
           throw new KafkaException(s"Duplicate log directory found: ${dirs.mkString(", ")}")
 
-
+        // 添加目录到ConcurrentLinkedQueue[File]队列中
         liveLogDirs.add(dir)
       } catch {
         case e: IOException =>
           logDirFailureChannel.maybeAddOfflineLogDir(dir.getAbsolutePath, s"Failed to create or validate data directory ${dir.getAbsolutePath}", e)
       }
     }
+    // 工作log目录不能为空，一个都没有则直接退出
     if (liveLogDirs.isEmpty) {
       fatal(s"Shutdown broker because none of the specified log dirs from ${dirs.mkString(", ")} can be created or validated")
       Exit.halt(1)
@@ -1213,13 +1224,20 @@ object LogManager {
             brokerTopicStats: BrokerTopicStats,
             logDirFailureChannel: LogDirFailureChannel,
             keepPartitionMetadataFile: Boolean): LogManager = {
+    // 加载默认配置
     val defaultProps = LogConfig.extractLogConfigMap(config)
 
     LogConfig.validateValues(defaultProps)
     val defaultLogConfig = LogConfig(defaultProps)
 
+    // 日志清理组件配置
     val cleanerConfig = LogCleaner.cleanerConfig(config)
 
+    /**
+      TODO 创建LogManager对象，该类对主构造代码都会被运行
+      TODO 内部有一个重要的参数: 🔥 logDirs = config.logDirs.map(new File(_))
+      配置了 kafka 存储的目录参数: log.dirs，在生产环境中通常会对应多个目录
+     */
     new LogManager(logDirs = config.logDirs.map(new File(_).getAbsoluteFile),
       initialOfflineDirs = initialOfflineDirs.map(new File(_).getAbsoluteFile),
       configRepository = configRepository,

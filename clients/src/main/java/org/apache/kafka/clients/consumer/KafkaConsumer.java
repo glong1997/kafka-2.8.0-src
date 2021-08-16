@@ -672,7 +672,9 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             GroupRebalanceConfig groupRebalanceConfig = new GroupRebalanceConfig(config,
                     GroupRebalanceConfig.ProtocolType.CONSUMER);
 
+            // TODO 获取消费者组id
             this.groupId = Optional.ofNullable(groupRebalanceConfig.groupId);
+            // TODO 获取客户端id
             this.clientId = config.getString(CommonClientConfigs.CLIENT_ID_CONFIG);
 
             LogContext logContext;
@@ -694,6 +696,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             });
 
             log.debug("Initializing the Kafka consumer");
+            // 获取其他配置参数
             this.requestTimeoutMs = config.getInt(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG);
             this.defaultApiTimeoutMs = config.getInt(ConsumerConfig.DEFAULT_API_TIMEOUT_MS_CONFIG);
             this.time = Time.SYSTEM;
@@ -705,6 +708,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                     ConsumerInterceptor.class,
                     Collections.singletonMap(ConsumerConfig.CLIENT_ID_CONFIG, clientId));
             this.interceptors = new ConsumerInterceptors<>(interceptorList);
+            // TODO 设置key和value的反序列化类
             if (keyDeserializer == null) {
                 this.keyDeserializer = config.getConfiguredInstance(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, Deserializer.class);
                 this.keyDeserializer.configure(config.originals(Collections.singletonMap(ConsumerConfig.CLIENT_ID_CONFIG, clientId)), true);
@@ -741,6 +745,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             int heartbeatIntervalMs = config.getInt(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG);
 
             ApiVersions apiVersions = new ApiVersions();
+            // TODO 🔥 1⃣️ 初始化 NetworkClient 网络组件，用于消费者与服务端的通信
             NetworkClient netClient = new NetworkClient(
                     new Selector(config.getLong(ConsumerConfig.CONNECTIONS_MAX_IDLE_MS_CONFIG), metrics, time, metricGrpPrefix, channelBuilder, logContext),
                     this.metadata,
@@ -759,6 +764,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                     apiVersions,
                     throttleTimeSensor,
                     logContext);
+            // TODO 2⃣️ ConsumerNetworkClient 在 NetWorkClient 上作了封装
             this.client = new ConsumerNetworkClient(
                     logContext,
                     netClient,
@@ -772,6 +778,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                     config.originals(Collections.singletonMap(ConsumerConfig.CLIENT_ID_CONFIG, clientId)));
 
             // no coordinator will be constructed for the default (null) group id
+            // TODO 🔥 初始化ConsumerCoordinator对象，负责消费者与服务端 GroupCoordinator 通信
             this.coordinator = !groupId.isPresent() ? null :
                 new ConsumerCoordinator(groupRebalanceConfig,
                         logContext,
@@ -786,6 +793,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                         config.getInt(ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG),
                         this.interceptors,
                         config.getBoolean(ConsumerConfig.THROW_ON_FETCH_STABLE_OFFSET_UNSUPPORTED));
+            // TODO 3⃣️ 初始化Fetcher对象， 对 ConsumerNetworkClient 进行了包装，负责从服务端获取消息
             this.fetcher = new Fetcher<>(
                     logContext,
                     this.client,
@@ -1214,21 +1222,29 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * @throws KafkaException if the rebalance callback throws exception
      */
     private ConsumerRecords<K, V> poll(final Timer timer, final boolean includeMetadataInTimeout) {
+        // KafkaConsumer是线程不安全的，同时只能允许一个线程运行。
+        // 因此在poll的时候会进行判定，如果有多个线程同时使用一个KafkaConsumer则会抛出异常
         acquireAndEnsureOpen();
         try {
+            // TODO Consumer验证自己是否有任何订阅信息。如果没有指定任何topics, 就报错。
             this.kafkaConsumerMetrics.recordPollStart(timer.currentTimeMs());
 
             if (this.subscriptions.hasNoSubscriptionOrUserAssignment()) {
                 throw new IllegalStateException("Consumer is not subscribed to any topics or assigned any partitions");
             }
 
+            // TODO 拉取消息的循环，直到拉取超时或者接收到了一些消息
             do {
+                // 可以在拉取的过程中中断consumer, 比如你设置了拉取的超时时间以后，超过了超时时间就会抛出异常。
                 client.maybeTriggerWakeup();
 
+                // 获收元数据添加超时机制。注意这个多数建议设置为true,如果设置为false也就走的else那条路 就会一直去同步获取元数据。
+                // 极端情况可能就点卡住了，而设置为true的话，就会先去尝试更新元数据信息。如果更新失败会立即返回空记录，结束 poll 过程
                 if (includeMetadataInTimeout) {
                     // try to update assignment metadata BUT do not need to block on the timer for join group
                     updateAssignmentMetadataIfNeeded(timer, false);
                 } else {
+                    // 更新分配元数据，协调器，心跳💗，消费记录
                     while (!updateAssignmentMetadataIfNeeded(time.timer(Long.MAX_VALUE), true)) {
                         log.warn("Still waiting for metadata");
                     }

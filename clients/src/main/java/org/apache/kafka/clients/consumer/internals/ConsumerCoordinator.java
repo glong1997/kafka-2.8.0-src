@@ -505,6 +505,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
                 }
 
                 // if not wait for join group, we would just use a timer of 0
+                // TODO 当成功找到Coordinator后，那么就要发起加入group的请求，表示该consumer是该组的成员，Coordinator会接收到该请求
                 if (!ensureActiveGroup(waitForJoinGroup ? timer : time.timer(0L))) {
                     // since we may use a different timer in the callee, we'd still need
                     // to update the original timer's current time after the call
