@@ -300,18 +300,18 @@ public class NetworkClient implements KafkaClient {
      */
     @Override
     public boolean ready(Node node, long now) {
-        // 节点为空就报异常
+        // TODO 节点为空就报异常
         if (node.isEmpty())
             throw new IllegalArgumentException("Cannot connect to empty node " + node);
 
-        // 判断要发送消息的主机，是否具备发送消息的条件
+        // TODO 判断要发送消息的主机，是否具备发送消息的条件
         if (isReady(node, now))
             return true;
 
-        // 🔥第一次进来应该是没有建立好连接，判断是否可以尝试去建立好网络
+        // TODO 🔥第一次进来应该是没有建立好连接，判断是否可以尝试去建立好网络
         if (connectionStates.canConnect(node.idString(), now)){
             // if we are interested in sending to a node and we don't have a connection to it, initiate one
-            // 初始化连接
+            // TODO 初始化连接
             initiateConnect(node, now);}
 
         return false;
