@@ -115,7 +115,7 @@ public class KafkaChannel implements AutoCloseable {
 
     // 一个broker对应一个KafkaChannel，这里就是brokerId
     private final String id;
-    // 🔥TransportLayer封装了java NIO中的 socketChannel
+    // TODO 🔥TransportLayer封装了java NIO中的 socketChannel
     private final TransportLayer transportLayer;
     // kafka安全机制认证
     private final Supplier<Authenticator> authenticatorCreator;

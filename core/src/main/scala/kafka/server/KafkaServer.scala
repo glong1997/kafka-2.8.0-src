@@ -246,7 +246,7 @@ class KafkaServer(
         logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
 
         /* start log manager */
-        // TODO 初始化LogManager 这里其本质是使用了 Object LogManager 它对apply
+        // TODO 初始化LogManager，用于管理log日志
         logManager = LogManager(config, initialOfflineDirs,
           new ZkConfigRepository(new AdminZkClient(zkClient)),
           kafkaScheduler, time, brokerTopicStats, logDirFailureChannel, config.usesTopicId)
@@ -290,7 +290,7 @@ class KafkaServer(
         // 启动 socketServer 服务
         socketServer.startup(startProcessingRequests = false)
 
-        /* start replica manager 启动副本管理 */
+        /* TODO  start replica manager 开启分区副本管理 */
         alterIsrManager = if (config.interBrokerProtocolVersion.isAlterIsrSupported) {
           AlterIsrManager(
             config = config,
@@ -307,6 +307,7 @@ class KafkaServer(
         }
         alterIsrManager.start()
 
+        // TODO 🔥 创建分区副本管理。
         replicaManager = createReplicaManager(isShuttingDown)
         replicaManager.startup()
 
@@ -320,13 +321,13 @@ class KafkaServer(
         tokenManager = new DelegationTokenManager(config, tokenCache, time , zkClient)
         tokenManager.startup()
 
-        /* start kafka controller */
+        /* TODO 开启controller */
         kafkaController = new KafkaController(config, zkClient, time, metrics, brokerInfo, brokerEpoch, tokenManager, brokerFeatures, featureCache, threadNamePrefix)
         kafkaController.startup()
 
         adminManager = new ZkAdminManager(config, metrics, metadataCache, zkClient)
 
-        /* start group coordinator */
+        /* TODO 开启 group coordinator */
         // Hardcode Time.SYSTEM for now as some Streams tests fail otherwise, it would be good to fix the underlying issue
         groupCoordinator = GroupCoordinator(config, replicaManager, Time.SYSTEM, metrics)
         groupCoordinator.startup(() => zkClient.getTopicPartitionCount(Topic.GROUP_METADATA_TOPIC_NAME).getOrElse(config.offsetsTopicPartitions))

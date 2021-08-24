@@ -103,10 +103,11 @@ public class Selector implements Selectable, AutoCloseable {
 
     // 日志对象
     private final Logger log;
-    // 🔥该对象就是Java NIO中的Selector，用来监听网络io事件
+    // TODO 🔥该对象就是Java NIO中的Selector，用来监听网络io事件
     // 负责网络的建立， 发送网络请求， 处理网络io， 是kafka网络这一块的核心组件。
     private final java.nio.channels.Selector nioSelector;
-    // 🔥存储brokerId与KafkaChannel之间的映射关系，KafkaChannel是基于socketChannel进行了封装。
+    // TODO 🔥存储brokerId与KafkaChannel之间的映射关系。
+    // KafkaChannel是基于NIO的socketChannel进行了封装，可以把KafkaChannel理解为连接
     private final Map<String, KafkaChannel> channels;
     private final Set<KafkaChannel> explicitlyMutedChannels;
     private boolean outOfMemory;

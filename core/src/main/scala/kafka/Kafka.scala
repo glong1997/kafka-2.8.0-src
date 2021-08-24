@@ -111,6 +111,7 @@ object Kafka extends Logging {
         }
       })
 
+      // TODO 2.startup
       try server.startup()
       catch {
         case _: Throwable =>

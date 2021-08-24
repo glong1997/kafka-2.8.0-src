@@ -311,7 +311,7 @@ public class NetworkClient implements KafkaClient {
         // TODO 🔥第一次进来应该是没有建立好连接，判断是否可以尝试去建立好网络
         if (connectionStates.canConnect(node.idString(), now)){
             // if we are interested in sending to a node and we don't have a connection to it, initiate one
-            // TODO 初始化连接
+            // TODO 🔥初始化连接
             initiateConnect(node, now);}
 
         return false;
@@ -983,14 +983,14 @@ public class NetworkClient implements KafkaClient {
      * @param now current time in epoch milliseconds
      */
     private void initiateConnect(Node node, long now) {
-        // 获取节点id
+        // TODO 获取节点id
         String nodeConnectionId = node.idString();
         try {
-            // 更下节点的连接状态为连接中CONNECTING
+            // TODO 更新节点的连接状态为连接中CONNECTING
             connectionStates.connecting(nodeConnectionId, now, node.host(), clientDnsLookup);
             InetAddress address = connectionStates.currentAddress(nodeConnectionId);
             log.debug("Initiating connection to node {} using address {}", node, address);
-            // 🔥尝试与节点建立socket网络连接
+            // TODO 🔥尝试与节点建立socket网络连接
             selector.connect(nodeConnectionId,
                     new InetSocketAddress(address, node.port()),
                     this.socketSendBuffer,
