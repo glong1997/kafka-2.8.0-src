@@ -290,7 +290,7 @@ class KafkaServer(
         // 启动 socketServer 服务
         socketServer.startup(startProcessingRequests = false)
 
-        /* TODO  start replica manager 开启分区副本管理 */
+        /* TODO 🔥 start replica manager 开启分区副本管理 */
         alterIsrManager = if (config.interBrokerProtocolVersion.isAlterIsrSupported) {
           AlterIsrManager(
             config = config,
@@ -307,7 +307,7 @@ class KafkaServer(
         }
         alterIsrManager.start()
 
-        // TODO 🔥 创建分区副本管理。
+        // TODO 🔥 创建分区的副本管理。
         replicaManager = createReplicaManager(isShuttingDown)
         replicaManager.startup()
 
@@ -372,8 +372,9 @@ class KafkaServer(
           new FetchSessionCache(config.maxIncrementalFetchSessionCacheSlots,
             KafkaServer.MIN_INCREMENTAL_FETCH_SESSION_EVICTION_MS))
 
-        /* start processing requests */
+        /* TODO 🔥 开始处理请求 */
         val zkSupport = ZkSupport(adminManager, kafkaController, zkClient, forwardingManager, metadataCache)
+        // KafkaApis
         dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel, zkSupport, replicaManager, groupCoordinator, transactionCoordinator,
           autoTopicCreationManager, config.brokerId, config, configRepository, metadataCache, metrics, authorizer, quotaManagers,
           fetchManager, brokerTopicStats, clusterId, time, tokenManager, apiVersionManager)

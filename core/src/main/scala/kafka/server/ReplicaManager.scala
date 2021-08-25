@@ -602,23 +602,29 @@ class ReplicaManager(val config: KafkaConfig,
    * are expected to call ActionQueue.tryCompleteActions for all affected partitions, without holding any conflicting
    * locks.
    */
-  def appendRecords(timeout: Long,
-                    requiredAcks: Short,
+  def appendRecords(timeout: Long,  // 请求处理超时时间
+                    requiredAcks: Short,  // 请求acks设置
                     internalTopicsAllowed: Boolean,
                     origin: AppendOrigin,
                     entriesPerPartition: Map[TopicPartition, MemoryRecords],
                     responseCallback: Map[TopicPartition, PartitionResponse] => Unit,
                     delayedProduceLock: Option[Lock] = None,
                     recordConversionStatsCallback: Map[TopicPartition, RecordConversionStats] => Unit = _ => ()): Unit = {
+    // 判断acks是否合法，0，-1，1合法
     if (isValidRequiredAcks(requiredAcks)) {
+      // 获取当前时间
       val sTime = time.milliseconds
+      // TODO 调用appendToLocalLog方法写消息到本地日志
       val localProduceResults = appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
         origin, entriesPerPartition, requiredAcks)
       debug("Produce to local log in %d ms".format(time.milliseconds - sTime))
 
+      // TODO 🔥 根据写日志返回结果，封装为响应。
       val produceStatus = localProduceResults.map { case (topicPartition, result) =>
         topicPartition -> ProducePartitionStatus(
+          // 设置下一条待写入消息的偏移量
           result.info.lastOffset + 1, // required offset
+          // 构建分区响应
           new PartitionResponse(
             result.error,
             result.info.firstOffset.map(_.messageOffset).getOrElse(-1),
@@ -671,7 +677,7 @@ class ReplicaManager(val config: KafkaConfig,
         responseCallback(produceResponseStatus)
       }
     } else {
-      // If required.acks is outside accepted range, something is wrong with the client
+      // 如果 acks 非法，则客户端有问题
       // Just return an error and don't handle the request at all
       val responseStatus = entriesPerPartition.map { case (topicPartition, _) =>
         topicPartition -> new PartitionResponse(
@@ -943,18 +949,23 @@ class ReplicaManager(val config: KafkaConfig,
     if (traceEnabled)
       trace(s"Append [$entriesPerPartition] to local log")
 
+    // TODO 遍历每个分区
     entriesPerPartition.map { case (topicPartition, records) =>
       brokerTopicStats.topicStats(topicPartition.topic).totalProduceRequestRate.mark()
       brokerTopicStats.allTopicsStats.totalProduceRequestRate.mark()
 
       // reject appending to internal topics if it is not allowed
+      // TODO 如果要写入数据的topic是内部的主题，名称为 _consumer_offsets
+      // 0.8之前偏移量保存在zk，0.8以上的偏移量保存在_consumer_offsets主题上
       if (Topic.isInternal(topicPartition.topic) && !internalTopicsAllowed) {
         (topicPartition, LogAppendResult(
           LogAppendInfo.UnknownLogAppendInfo,
           Some(new InvalidTopicException(s"Cannot append to internal topic ${topicPartition.topic}"))))
-      } else {
+      } else {  // TODO 我们自己创建主题
         try {
+          // TODO 获取对应的分区对象
           val partition = getPartitionOrException(topicPartition)
+          // TODO 🔥 向该leader分区对象写入消息集合
           val info = partition.appendRecordsToLeader(records, origin, requiredAcks)
           val numAppendedMessages = info.numMessages
 
@@ -967,7 +978,7 @@ class ReplicaManager(val config: KafkaConfig,
           if (traceEnabled)
             trace(s"${records.sizeInBytes} written to log $topicPartition beginning at offset " +
               s"${info.firstOffset.getOrElse(-1)} and ending at offset ${info.lastOffset}")
-
+          // TODO 返回每个分区写入的消息结果。
           (topicPartition, LogAppendResult(info))
         } catch {
           // NOTE: Failed produce requests metric is not incremented for known exceptions

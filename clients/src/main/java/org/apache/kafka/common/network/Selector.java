@@ -259,7 +259,7 @@ public class Selector implements Selectable, AutoCloseable {
     @Override
     public void connect(String id, InetSocketAddress address, int sendBufferSize, int receiveBufferSize) throws IOException {
         ensureNotRegistered(id);
-        // 🔥如下代码就是一些java nIO编程的基本代码！
+        // TODO 🔥如下代码就是一些java nIO编程的基本代码！
         SocketChannel socketChannel = SocketChannel.open();
         SelectionKey key = null;
         try {

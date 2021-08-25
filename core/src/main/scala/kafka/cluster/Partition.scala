@@ -1054,21 +1054,28 @@ class Partition(val topicPartition: TopicPartition,
 
   def appendRecordsToLeader(records: MemoryRecords, origin: AppendOrigin, requiredAcks: Int): LogAppendInfo = {
     val (info, leaderHWIncremented) = inReadLock(leaderIsrUpdateLock) {
+      // 模式匹配
       leaderLogIfLocal match {
+        // TODO 只有leader副本支持追加消息的操作。
         case Some(leaderLog) =>
+          // 获取ISR，默认参数为2。
           val minIsr = leaderLog.config.minInSyncReplicas
+          // TODO ISR列表副本个数
           val inSyncSize = isrState.isr.size
 
           // Avoid writing to leader if there are not enough insync replicas to make it safe
+          // 如果ISR列表中副本个数 < 最小的ISR副本数并且ack为-1，直接抛出异常。
           if (inSyncSize < minIsr && requiredAcks == -1) {
             throw new NotEnoughReplicasException(s"The size of the current ISR ${isrState.isr} " +
               s"is insufficient to satisfy the min.isr requirement of $minIsr for partition $topicPartition")
           }
 
+          // TODO 往leader副本的Log对象追加消息， 本质是调用Log的append函数。
           val info = leaderLog.appendAsLeader(records, leaderEpoch = this.leaderEpoch, origin,
             interBrokerProtocolVersion)
 
           // we may need to increment high watermark since ISR could be down to 1
+          // TODO 尝试后移 leader 副本的 HW 值。
           (info, maybeIncrementLeaderHW(leaderLog))
 
         case None =>

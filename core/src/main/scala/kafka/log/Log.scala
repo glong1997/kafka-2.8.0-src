@@ -1109,6 +1109,7 @@ class Log(@volatile private var _dir: File,
                      origin: AppendOrigin = AppendOrigin.Client,
                      interBrokerProtocolVersion: ApiVersion = ApiVersion.latestVersion): LogAppendInfo = {
     val validateAndAssignOffsets = origin != AppendOrigin.RaftLeader
+    // append方法实现把消息追加到日志文件中。
     append(records, origin, interBrokerProtocolVersion, validateAndAssignOffsets, leaderEpoch, ignoreRecordSize = false)
   }
 
