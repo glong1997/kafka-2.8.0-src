@@ -41,7 +41,7 @@ public class Producer extends Thread {
      * @param topic 主题
      * @param isAsync   是否异步
      * @param transactionalId   事物
-     * @param enableIdempotency
+     * @param enableIdempotency  是否启用幂等性
      * @param numRecords
      * @param transactionTimeoutMs
      * @param latch

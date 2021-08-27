@@ -571,9 +571,9 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     private Logger log;
     private final String clientId;
-    private final Optional<String> groupId;
-    private final ConsumerCoordinator coordinator;
-    private final Deserializer<K> keyDeserializer;
+    private final Optional<String> groupId; // 消费者组id
+    private final ConsumerCoordinator coordinator;  // 协调器
+    private final Deserializer<K> keyDeserializer;  // 反序列化器
     private final Deserializer<V> valueDeserializer;
     private final Fetcher<K, V> fetcher;
     private final ConsumerInterceptors<K, V> interceptors;

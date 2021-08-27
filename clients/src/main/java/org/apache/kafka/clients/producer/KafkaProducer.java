@@ -434,7 +434,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             List<InetSocketAddress> addresses = ClientUtils.parseAndValidateAddresses(
                     config.getList(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG),
                     config.getString(ProducerConfig.CLIENT_DNS_LOOKUP_CONFIG));
-            // 判断 Kafka 集群元数据信息是否存在 🔥🔥
+            // TODO 判断 Kafka 集群元数据信息是否存在 🔥🔥
             if (metadata != null) {
                 /*  我们在Producer最开始的时候有 kafka集群的地址 和 topic，但是很多信息并不知道，需要借助元数据
                     metadata 包含了 Kafka 集群的元数据信息，包括
